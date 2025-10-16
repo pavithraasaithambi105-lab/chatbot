@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Career HR Bot</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #ebe9f0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+    .chat-container {
+      width: 380px;
+      height: 600px;
+      background: #f5f3f3;
+      border-radius: 16px;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+    .chat-box {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: url("img/bg.jpg") no-repeat center center;
+      background-size: cover;
+    }
+    .msg {
+      max-width: 80%;
+      padding: 10px;
+      border-radius: 12px;
+      word-wrap: break-word;
+    }
+    .user { align-self: flex-end; background: #f3d392; }
+    .bot { align-self: flex-start; background: #f0d6865e; }
+    .input-area {
+      display: flex;
+      align-items: center;
+      padding: 10px;
+      border-top: 1px solid #f7e3e8;
+      background: rgb(243, 246, 243);
+      gap: 8px;
+    }
+    .input-area input[type="text"] {
+      flex: 1;
+      padding: 12px;
+      border-radius: 25px;
+      border: 1px solid #f5e7e7;
+      outline: none;
+    }
+    .input-area button {
+      padding: 10px 14px;
+      border-radius: 20px;
+      border: none;
+      background: #f7f6f5f4;
+      color: #a063cc;
+      cursor: pointer;
+    }
+    .icon-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 18px;
+      color: #80b6e4;
+    }
+    .icon-btn:hover { color: #111; }
+    .small {
+      font-size: 12px;
+      color: #242828;
+      margin: 6px 12px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="chat-container">
+    <div class="chat-box" id="chatBox"></div>
+    <div class="small">Career HR Bot — gives resume tips, mock interview, career advice</div>
+
+    <div class="input-area">
+      <button class="icon-btn" id="uploadBtn" title="Upload Resume">📁</button>
+      <input type="file" id="resumeInput" accept=".pdf,.doc,.docx,.txt" style="display:none;" />
+      <button class="icon-btn" id="voiceBtn" title="Speak">🎤</button>
+      <input type="text" id="input" placeholder="Ask about resume, interview, salary..." autocomplete="off" />
+      <button id="sendBtn">Send</button>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = "/chat";  // Flask backend route
+    const RESUME_URL = "/upload_resume";
+
+    let sessionId = localStorage.getItem("chat_session_id");
+    if (!sessionId) {
+      sessionId = crypto.randomUUID ? crypto.randomUUID() : ('sess-' + Date.now());
+      localStorage.setItem("chat_session_id", sessionId);
+    }
+
+    const chatBox = document.getElementById("chatBox");
+    const input = document.getElementById("input");
+    const sendBtn = document.getElementById("sendBtn");
+    const uploadBtn = document.getElementById("uploadBtn");
+    const resumeInput = document.getElementById("resumeInput");
+    const voiceBtn = document.getElementById("voiceBtn");
+
+    sendBtn.addEventListener("click", sendMessage);
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") sendMessage(); });
+    uploadBtn.addEventListener("click", () => resumeInput.click());
+    resumeInput.addEventListener("change", uploadResume);
+    voiceBtn.addEventListener("click", startVoiceRecognition);
+
+    function appendMessage(text, cls) {
+      const d = document.createElement("div");
+      d.className = "msg " + cls;
+      d.innerText = text;
+      chatBox.appendChild(d);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    async function sendMessage() {
+      const msg = input.value.trim();
+      if (!msg) return;
+      appendMessage(msg, "user");
+      input.value = "";
+      appendMessage("...", "bot");
+
+      try {
+        const res = await fetch(API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId, message: msg })
+        });
+
+        let data;
+        try { data = await res.json(); }
+        catch(err) { appendMessage("Backend did not return JSON.", "bot"); return; }
+
+        const placeholders = document.querySelectorAll(".msg.bot");
+        if (placeholders.length) {
+          const last = placeholders[placeholders.length - 1];
+          if (last && last.innerText === "...") last.remove();
+        }
+
+        appendMessage(data.reply, "bot");
+
+      } catch (err) {
+        appendMessage("Network error: " + err.message, "bot");
+      }
+    }
+
+    async function uploadResume() {
+      const file = resumeInput.files[0];
+      if (!file) return;
+      appendMessage("Uploading resume: " + file.name, "user");
+
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("sessionId", sessionId);
+
+      try {
+        const res = await fetch(RESUME_URL, { method: "POST", body: formData });
+        let data;
+        try { data = await res.json(); }
+        catch(err) { appendMessage("Backend did not return JSON.", "bot"); return; }
+
+        appendMessage(data.reply || "Resume uploaded successfully!", "bot");
+      } catch (err) {
+        appendMessage("Error uploading resume: " + err.message, "bot");
+      }
+    }
+
+    function startVoiceRecognition() {
+      if (!('webkitSpeechRecognition' in window)) {
+        alert("Voice recognition not supported in this browser.");
+        return;
+      }
+
+      const recognition = new webkitSpeechRecognition();
+      recognition.lang = "en-IN";
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      recognition.start();
+      voiceBtn.style.color = "red";
+
+      recognition.onresult = function(event) {
+        const text = event.results[0][0].transcript;
+        input.value = text;
+        sendMessage();
+      };
+      recognition.onerror = function() {
+        appendMessage("Voice recognition error.", "bot");
+      };
+      recognition.onend = function() {
+        voiceBtn.style.color = "#666";
+      };
+    }
+  </script>
+</body>
+</html>
